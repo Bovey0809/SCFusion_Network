@@ -13,16 +13,19 @@ from meshing import occupancy_meshing, write_ply
 class SceneInpainting():
     def __init__(self, config):
         self.config = config
-        model_name = self.config.NAME if not self.config.NAME is None else 'SceneInapinting'
+        model_name = (
+            self.config.NAME if self.config.NAME is not None else 'SceneInapinting'
+        )
+
 
         self.model_name = model_name
         self.model = SceneInpaintingForknetModel(config,model_name).to(config.DEVICE)
-        
+
         self.metric_iou = Metric_IoU()
         self.metric_pr = Metric_PR()
 
         self.train_dataset = Dataset(config.TRAIN_BASE_FOLDERS, config.SUBFOLDERS, config.DATASET_PORTION)        
-        
+
         if config.MODE == 2: 
             # build test set
             self.val_dataset = Dataset(config.TEST_BASE_FOLDERS, config.SUBFOLDERS, config.DATASET_PORTION)
@@ -34,7 +37,7 @@ class SceneInpainting():
 
         self.samples_path = os.path.join(config.PATH, model_name, 'samples')
         self.results_path = os.path.join(config.PATH, model_name, 'results')
-        
+
         if config.RESULTS is not None:
             self.results_path = os.path.join(config.RESULTS)
 
@@ -42,7 +45,7 @@ class SceneInpainting():
             self.debug = True
 
         self.log_file = os.path.join(config.PATH, 'log_' + self.model_name + '.dat')
-        
+
         if self.config.MODE == 1:
             self.writter = SummaryWriter(  #TODO: maybe make logging of a model with same name to be at one file
                 os.path.join(config.PATH, "logs", model_name))
@@ -69,16 +72,22 @@ class SceneInpainting():
             shuffle=True,
             #worker_init_fn=lambda worker_id: np.random.seed(config.SEED+worker_id)
         )
-        
+
         epoch = 1
         keep_training=True
         max_iteration = int(float((self.config.MAX_ITERS)))
-        total = int(len(self.train_dataset)/self.config.BATCH_SIZE)*self.config.BATCH_SIZE if drop_last is True else  len(self.train_dataset) 
-        
+        total = (
+            int(len(self.train_dataset) / self.config.BATCH_SIZE)
+            * self.config.BATCH_SIZE
+            if drop_last
+            else len(self.train_dataset)
+        )
+         
+
         if total == 0:
             print('No training data was provided! Check \'TRAIN_FLIST\' value in the configuration file.')
             return
-        
+
         if self.model.iteration >= max_iteration:
             keep_training = False
             print('Read maximum training iteration (',max_iteration,').')
@@ -113,46 +122,46 @@ class SceneInpainting():
                     volume = items[0]
                     gt = items[1].long()
                     mask = items[2] if len(items) == 3 else None
-                
+
                 optimized, logs, pred  = self.model.process(volume,gt,mask)
-                
+
                 if optimized or iou == -1:
                     ious, *_= self.metric_iou(pred, gt, self.config.CLASS_NUM)
                     precisions, recalls, *_ = self.metric_pr(pred, gt, self.config.CLASS_NUM)    
                     iou = ious.detach().mean().item()
                     precision = precisions.detach().mean().item()
                     recall = recalls.detach().mean().item()
-                    
+
                 # calculate metrics                                
                 logs.append(("IoU/mean", iou))
                 logs.append(("Precision/mean", precision))
                 logs.append(("Recall/mean", recall))
                 logs.append(("F1Score/mean", Metric_F1(precision,recall)))
-                
+
                 # logs, com_dec, full_dec = self.model.process(volume,gt)
                 iteration = self.model.iteration
 
                 if iteration >= max_iteration:
                     keep_training = False
                     break
-                
+
                 logs = [
                     ("Misc/epo", int(epoch)),
                     ("Misc/it", int(iteration)),
                 ] + logs
-                
+
                 progbar.add(len(volume), values=logs \
                             if self.config.VERBOSE else [x for x in logs if not x[0].startswith('Loss')])
-                
+
                 # log model at checkpoints
                 if self.config.LOG_INTERVAL and iteration % self.config.LOG_INTERVAL == 0:
                     for i in range(self.config.CLASS_NUM):
                         iou = ious[i].item()
                         precision = precisions[i].item()
                         recall = recalls[i].item()
-                        
+
                         label_name_list = get_label_name_list(self.config.CLASS_NUM)
-                        
+
                         name = 'IoU/' + str(i) + '_' + label_name_list[i]
                         logs.append((name, iou))
                         name = 'Precision/' + str(i) + '_' + label_name_list[i]
@@ -160,8 +169,8 @@ class SceneInpainting():
                         name = 'Recall/' + str(i) + '_' + label_name_list[i]
                         logs.append((name, recall))
                         name = 'F1Score/' + str(i) + '_' + label_name_list[i]
-                        
-                            
+
+
                         logs.append((name, Metric_F1(precision,recall) ))
                     self.log(logs, iteration)
 
@@ -180,7 +189,7 @@ class SceneInpainting():
             epoch+=1
             progbar = Progbar(total, width=20, stateful_metrics=['Misc/epo', 'Misc/it'])
             loader = iter(train_loader)
-            
+
         if self.config.DEBUG == 0:
             if self.config.EVAL_INTERVAL:
                 # self.eval()

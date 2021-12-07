@@ -67,10 +67,7 @@ class mySequential(nn.Sequential, BaseNetwork):
         super(mySequential, self).__init__(*args)
     def forward(self, *inputs):
         for module in self._modules.values():
-            if type(inputs) == tuple:
-                inputs = module(*inputs)
-            else:
-                inputs = module(inputs)
+            inputs = module(*inputs) if type(inputs) == tuple else module(inputs)
         return inputs
     
 class ConvSame(BaseNetwork):
@@ -80,11 +77,11 @@ class ConvSame(BaseNetwork):
              ):
         super(ConvSame, self).__init__()
         padding = get_pad_same(dilation, kernel_size)
-        
+
         # print('padding',padding)
         pad = None
         if padding > 0:
-            if padding_mode == 'zeros' or padding_mode == 'circular': # default conv padding
+            if padding_mode in ['zeros', 'circular']: # default conv padding
                 pass
             elif padding_mode == 'constant':
                 pad = nn.ConstantPad3d(padding, padding_value)
@@ -94,29 +91,19 @@ class ConvSame(BaseNetwork):
                 padding=0
             else:
                 raise RuntimeError('Import padding method is not supported')
-            
-        
+
+
+        blocks=[]
+        if pad is not None:
+            blocks.append(
+                mySequential(pad)
+                )
         if conv_layer is GatedConv:
-            blocks=[]
-            if pad is not None:
-                blocks.append(
-                    mySequential(pad)
-                    )
             blocks.append(mySequential(
                 conv_layer(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, 'zeros',
                  norm, activation)
             ))
-            # self.ops = conv_layer(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, 'zeros',
-                 # norm, activation)
-            self.ops = mySequential(*blocks)
         else:
-            blocks=[]
-            
-            if pad is not None:
-                blocks.append(
-                    mySequential(pad)
-                    )
-            
             blocks.append(mySequential(
                 conv_layer(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, 'zeros')
             ))
@@ -128,7 +115,8 @@ class ConvSame(BaseNetwork):
                 blocks.append(mySequential(
                     activation
                 ))
-            self.ops = mySequential(*blocks)
+
+        self.ops = mySequential(*blocks)
     def forward(self, x):
         return self.ops(x)
     
@@ -246,11 +234,22 @@ class ResSSC(BaseNetwork):
         self.norm = norm(out_channels,track_running_stats=False) if norm is not None else None
         #TODO: delete me or delete BatchNorm3D after test
         if in_channels != out_channels:
-            blocks = []
-            blocks.append(mySequential(
-                    ConvSame(in_channels, out_channels, kernel_size, stride, dilation, conv_layer=conv_layer, bias=bias, padding_mode='zeros', padding_value=padding_value)
-            ))
-            
+            blocks = [
+                mySequential(
+                    ConvSame(
+                        in_channels,
+                        out_channels,
+                        kernel_size,
+                        stride,
+                        dilation,
+                        conv_layer=conv_layer,
+                        bias=bias,
+                        padding_mode='zeros',
+                        padding_value=padding_value,
+                    )
+                )
+            ]
+
             if self.norm is not None:
                 blocks.append(mySequential(
                     norm(out_channels,track_running_stats=False)
@@ -259,23 +258,23 @@ class ResSSC(BaseNetwork):
                 blocks.append(mySequential(
                     self.activation
                 ))
-                
+
             self.conversion = mySequential(*blocks)
             residual_blocks -= 1
         else:
             self.conversion=None
-            
+
         if res_add:
             self.res = ConvSame(in_channels, out_channels, 1, 1, 1, conv_layer=conv_layer, bias=bias, padding_mode='zeros', padding_value=padding_value)
         else:
             self.res=None
-            
+
         blocks = []
         for n in range(residual_blocks):
             blocks.append(mySequential(
                 ConvSame(out_channels, out_channels, kernel_size, stride,dilation, conv_layer=conv_layer, bias=bias, padding_mode='zeros', padding_value=padding_value)
             ))
-            
+
             if n + 1 < residual_blocks:
                 if norm is not None:
                     blocks.append(mySequential(
@@ -289,21 +288,11 @@ class ResSSC(BaseNetwork):
         
         
     def forward(self, x):
-        if self.res is not None:
-            res = self.res(x)
-        else:
-            res = x
-        if self.conversion is not None:
-            c = self.conversion(x)
-        else:
-            c = x
+        res = self.res(x) if self.res is not None else x
+        c = self.conversion(x) if self.conversion is not None else x
         x = self.middle(c)
-        
-        if self.res is not None:
-            x = res+x
-        else:
-            x = c + x
-            
+
+        x = res+x if self.res is not None else c + x
         if self.norm is not None:
             x = self.norm(x)
         if self.activation is not None:
@@ -328,22 +317,30 @@ class ASPP(BaseNetwork): #Atrous Spatial Pyramid Pooling
     def __init__(self, in_channels,out_channels,kernel_size:list,dilation:list,
                  activation=None, norm=None, conv_layer=nn.Conv3d):
         super(ASPP, self).__init__()
-        
-        
-        blocks=[]
-        for i in range(len(kernel_size)):
-            blocks.append(
-                ConvSame(in_channels,out_channels,kernel_size=kernel_size[i],
-                         stride=1,dilation=dilation[i],bias=False,
-                         activation=activation,norm=norm,conv_layer=conv_layer)
+
+
+        blocks = [
+            ConvSame(
+                in_channels,
+                out_channels,
+                kernel_size=kernel_size[i],
+                stride=1,
+                dilation=dilation[i],
+                bias=False,
+                activation=activation,
+                norm=norm,
+                conv_layer=conv_layer,
             )
+            for i in range(len(kernel_size))
+        ]
+
         blocks.append(    
             mySequential(
                 nn.AdaptiveAvgPool3d((None,None,None)),
                 ConvSame(in_channels,out_channels,1,1,1,bias=False,norm=norm,conv_layer=conv_layer,activation=activation
              ))
         )
-            
+
         self.blocks = blocks
         self.conv = ConvSame(out_channels*len(blocks),out_channels,kernel_size=1,
                          stride=1,dilation=1,bias=False,

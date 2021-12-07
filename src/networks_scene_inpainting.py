@@ -92,8 +92,7 @@ class EncoderForkNet2(BaseNetwork):
             self.encoder.init_weights('xavier_normal', nn.init.calculate_gain('leaky_relu',0.2))
             self.init_weights('xavier_normal')
     def forward(self, x):
-        y = self.encoder(x)
-        return y
+        return self.encoder(x)
     
 class GeneratorForkNet(BaseNetwork):
     def __init__(self, in_channels, out_channels, mode, init_weights=True):
@@ -107,16 +106,14 @@ class GeneratorForkNet(BaseNetwork):
         # norm=None
         h4_input_shape = 128
         h5_input_shape = 32
-        if mode == 0: #df
-            pass
-        elif mode == 1: #com
+        if mode in [0, 1]: #df
             pass
         elif mode == 2: #sem
             h4_input_shape *= 2
             h5_input_shape *= 2
         else:
             raise NotImplementedError()
-            
+
         self.h3 = mySequential(
             ConvTransposeSame(in_channels,128,1,2,4, output_padding=1,activation=self.relu,norm=norm),
         )
@@ -143,12 +140,12 @@ class GeneratorForkNet(BaseNetwork):
                 self.res1 = AddWithBNActivator(torch.nn.ReLU(inplace=True),norm(out_channels*2))
             else:
                 self.res1 = AddWithBNActivator(torch.nn.ReLU(inplace=True),None)
-            
+
             self.res_post = mySequential(
                 ConvSame(out_channels,out_channels,3,1,1),
                 torch.nn.Softmax(1)
             )
-        
+
         if init_weights:
             self.init_weights()
     def forward(self, x, h3_=None,h4_=None,h5_=None):
