@@ -25,10 +25,10 @@ class SceneInpaintingForknetModel(BaseModel):
         self.use_mask  = config.MASK > 0
         self.use_discriminator = config.DISCRIMINATIVE > 0
 
-        self.predict_df  = self.config.PRED_DF>0        
+        self.predict_df  = self.config.PRED_DF>0
         self.predict_com = self.config.PRED_COM>0 or self.config.PRED_SEM>0
         self.predict_sem = self.config.PRED_SEM>0
-        
+
         # Normalization Methods
         if config.NORM == 0:
             norm = None
@@ -38,19 +38,15 @@ class SceneInpaintingForknetModel(BaseModel):
             norm = nn.InstanceNorm3d
         else:
             raise NotImplementedError
-            
+
         # Gated or original Conv
-        if config.GATED == 0:
-            conv_layer = nn.Conv3d
-        else:
-            conv_layer = GatedConv
-        
+        conv_layer = nn.Conv3d if config.GATED == 0 else GatedConv
         # Mask with mask as an additional input
         if self.use_mask:
             encoder = EncoderForkNet(self.config, 2, config.CLASS_NUM,norm=norm,conv_layer=conv_layer)
         else:
             encoder = EncoderForkNet(self.config, 1, config.CLASS_NUM,norm=norm,conv_layer=conv_layer)
-            
+
         self.has_fork = self.predict_df or self.predict_com or self.predict_sem
         if self.has_fork:
             encoder2 = EncoderForkNet2(config.CLASS_NUM,256)
@@ -61,15 +57,15 @@ class SceneInpaintingForknetModel(BaseModel):
         if self.predict_sem:
             generator_sem = GeneratorForkNet(256, config.CLASS_NUM, 2)
             generator_sem_ref = GeneratorRefineForkNet(config.CLASS_NUM)
-            
+
         if self.use_discriminator:
             discriminator_ssc = Discriminator(in_channels=config.CLASS_NUM, use_sigmoid=config.GAN_LOSS != 'hinge')
             # if self.use_mask:
             #     discriminator_ssc = Discriminator(in_channels=config.CLASS_NUM+1, use_sigmoid=config.GAN_LOSS != 'hinge')
             # else:
             #     discriminator_ssc = Discriminator(in_channels=config.CLASS_NUM, use_sigmoid=config.GAN_LOSS != 'hinge')
-            
-        
+
+
         if len(config.GPU) > 1:
             encoder = nn.DataParallel(encoder, config.GPU)
             if self.use_discriminator:
@@ -83,7 +79,7 @@ class SceneInpaintingForknetModel(BaseModel):
             if self.predict_sem:
                 generator_sem = nn.DataParallel(generator_sem, config.GPU)
                 generator_sem_ref = nn.DataParallel(generator_sem_ref, config.GPU)
-            
+
         self.add_module('encoder', encoder)
         if self.use_discriminator:
             self.add_module('discriminator_ssc', discriminator_ssc)
@@ -96,19 +92,19 @@ class SceneInpaintingForknetModel(BaseModel):
         if self.predict_sem:
             self.add_module('generator_sem',generator_sem)
             self.add_module('generator_sem_ref',generator_sem_ref)
-        
+
         self.l1_loss = nn.L1Loss()
         self.reconstruction_loss = ReconstructionLoss()
         if self.use_discriminator:
             self.adversarial_loss = AdversarialLoss(type=config.GAN_LOSS)
-        
+
         self.ssc_optimizer = optim.Adam(
             [{'params': encoder.parameters()}],
             lr = float(config.LR_G),
             betas=(config.BETA_G, config.BETA2)
         )
         self.ssc_optimizer.zero_grad()
-        
+
         if self.has_fork:
             params = list(encoder2.parameters())
             if self.predict_df:
@@ -118,7 +114,7 @@ class SceneInpaintingForknetModel(BaseModel):
             if self.predict_sem:
                 params += list(generator_sem.parameters())
                 params += list(generator_sem_ref.parameters())
-                
+
             self.fork_optimizer =optim.Adam(
                 params=params,
                 lr = float(config.LR_G),
@@ -212,10 +208,10 @@ class SceneInpaintingForknetModel(BaseModel):
         input_s = input_.unsqueeze(1)
         if self.use_mask:
             input_known = input_ * (1-mask_.unsqueeze(1)).float()
-        
-        
+
+
         pred_df = self.generator_df(code)
-        
+
         if self.use_mask:
             # only compare known area
             df_l1_loss = self.l1_loss(pred_df, input_known) * self.config.L1_LOSS_WEIGHT
@@ -226,20 +222,17 @@ class SceneInpaintingForknetModel(BaseModel):
             print('pred_df.sum():',pred_df.sum())
             raise Exception('df_l1_loss loss is nan!')
         gen_df_loss += df_l1_loss
-        
+
         if self.use_discriminator:
             # discriminator_df loss
-            if self.use_mask:
-                dis_df_input_real = input_known
-            else:
-                dis_df_input_real = input_s
+            dis_df_input_real = input_known if self.use_mask else input_s
             dis_df_input_fake = pred_df.detach()
             dis_df_real, _ = self.discriminator_df(dis_df_input_real)                    # in: [rgb(3)]
             dis_df_fake, _ = self.discriminator_df(dis_df_input_fake)                    # in: [rgb(3)]
             dis_df_real_loss = self.adversarial_loss(dis_df_real, True, True)
             dis_df_fake_loss = self.adversarial_loss(dis_df_fake, False, True)
             dis_df_loss += (dis_df_real_loss + dis_df_fake_loss) / 2
-            
+
             # generator adversarial loss
             ## df
             gen_df_input_fake = pred_df
@@ -395,36 +388,35 @@ class SceneInpaintingForknetModel(BaseModel):
             gen_df_loss, dis_df_loss, *_ = self.process_df(input_, gt_, code,mask_)
             fork_loss += gen_df_loss
         if self.predict_sem:
-            gen_com_loss, dis_com_loss, pred_com, pred_com_ref, h3, h4, h5 = self.process_com(input_,gt_,code,mask_)                
+            gen_com_loss, dis_com_loss, pred_com, pred_com_ref, h3, h4, h5 = self.process_com(input_,gt_,code,mask_)
             fork_loss += gen_com_loss
 
-            if self.predict_sem:
-                sem_ssc_loss_part, sem_ssc_loss_full, dis_sem_loss, pred_sem_surf, pred_sem_full = \
-                    self.process_sem(input_,gt_,code,h3,h4,h5,mask_)
-                gen_sem_loss = sem_ssc_loss_part.detach() + sem_ssc_loss_full.detach()
-                fork_loss += sem_ssc_loss_part
-                fork_loss += sem_ssc_loss_full
-                
+        if self.predict_sem:
+            sem_ssc_loss_part, sem_ssc_loss_full, dis_sem_loss, pred_sem_surf, pred_sem_full = \
+                self.process_sem(input_,gt_,code,h3,h4,h5,mask_)
+            gen_sem_loss = sem_ssc_loss_part.detach() + sem_ssc_loss_full.detach()
+            fork_loss += sem_ssc_loss_part
+            fork_loss += sem_ssc_loss_full
+
         if self.has_fork:
             self.fork_optimizer.zero_grad()
             fork_loss.backward()
             self.fork_optimizer.step()
-                 
+
         return gen_df_loss, gen_com_loss, gen_sem_loss, pred_com, pred_com_ref, pred_sem_surf, pred_sem_full
 
     def process(self, input_, gt_, mask_ = None):
-        self.iteration +=1       
-        if self.use_mask:
-            if mask_ is None:
-                raise Exception('Mask was specified as Use but given mask is None')
-                
-                
+        self.iteration +=1
+        if self.use_mask and mask_ is None:
+            raise Exception('Mask was specified as Use but given mask is None')
+
+
         #TODO: test whether this works
         if self.config.MASK_LOSS > 0:
             assert mask_ is not None
             preprocess_input(input_,mask_)
-            
-                
+
+
         # input_[input_<0] = 0
 
         # Generator loss        
@@ -438,7 +430,7 @@ class SceneInpaintingForknetModel(BaseModel):
         if self.has_fork:
             gen_df_loss, gen_com_loss, gen_sem_loss, \
                 pred_com, pred_com_ref, pred_sem_surf, pred_sem_full = self.train_generator(input_,gt_,mask_)
-                     
+
             if self.predict_df:    
                 logs += [("Loss/df_loss", gen_df_loss.detach().item())]
             if self.predict_com:
@@ -457,7 +449,7 @@ class SceneInpaintingForknetModel(BaseModel):
         if self.config.MASK_LOSS > 0:
             assert mask_ is not None
             preprocess_input(input_,mask_)
-            
+
         if self.use_mask:
             if mask_ is None:
                 raise Exception('input mask cannot be None when MASK is enabled.')
@@ -468,28 +460,26 @@ class SceneInpaintingForknetModel(BaseModel):
             code = self.encoder2(pred_sem_ssc)
             pred_com, pred_com_ref, h3, h4, h5= self.generator_com(code)
             pred_sem_part= self.generator_sem(code, h3, h4, h5)
-            pred_sem_full = self.generator_sem_ref(pred_sem_part)
-            return pred_sem_full
+            return self.generator_sem_ref(pred_sem_part)
         return pred_sem_ssc
     
     def backward(self, gen_ssc_loss, dis_ssc_loss, fork_loss):
         if self.use_discriminator:
             dis_ssc_loss = dis_ssc_loss / self.config.BATCH_FACTOR
             dis_ssc_loss.backward()
-        
+
         gen_ssc_loss = gen_ssc_loss / self.config.BATCH_FACTOR
         gen_ssc_loss.backward()
-        
+
         if self.has_fork:
             fork_loss = fork_loss / self.config.BATCH_FACTOR
             fork_loss.backward()
-            
-        if (self.iteration) % self.config.BATCH_FACTOR == 0: 
-            self.optimize()
-            self.resetGrad()
-            return True
-        else:
+
+        if (self.iteration) % self.config.BATCH_FACTOR != 0:
             return False
+        self.optimize()
+        self.resetGrad()
+        return True
 
     def optimize(self):
         if self.use_discriminator:
@@ -511,13 +501,12 @@ class SceneInpaintingForknetModel(BaseModel):
         # inverse = 1.0 / (batch_mean + 1.0)
         # weight = inverse / inverse.sum()
         # print('\nweight',weight)
-        
+
         batch_mean = torch.sum(x, dim=(0))
-        weight2 = torch.abs(1.0 / (torch.log(batch_mean)+1)) # +1 to prevent 1 /log(1) = inf
         # print('batch_mean',batch_mean)
         # print('weight2', weight2)
-        
-        return weight2
+
+        return torch.abs(1.0 / (torch.log(batch_mean)+1))
         
 if __name__ == '__main__':   
     config = Config('../config.yml.example')

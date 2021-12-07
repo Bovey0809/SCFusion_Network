@@ -28,14 +28,14 @@ def scene_model_id_pair(path, dataset_portion=1.0, shuffle=False):
                 folder_name = file
             else:
                 scene_name_pair.extend([(model_path, os.path.join(diff,folder_name, file)) for file__ in foo])
-     
+
     if shuffle is True:
         random.shuffle(scene_name_pair)
 
     num_models = len(scene_name_pair)
     portioned_scene_name_pair = scene_name_pair[int(num_models *
                                                     (1-dataset_portion)):]
-    if not shuffle is True:
+    if shuffle is not True:
         portioned_scene_name_pair = sorted(portioned_scene_name_pair)
     return portioned_scene_name_pair
 
@@ -50,14 +50,11 @@ class Dataset(torch.utils.data.Dataset):
         super(Dataset, self).__init__()
         self.folder_names = folder_names
         self.shuffle = shuffle
-   
-        if len(input_base_folders) == 0:
+
+        if not input_base_folders:
             raise RuntimeError('input base folder has size 0')
-        
-        paths = dict()
-        for name in folder_names:
-            paths[name] = list()
-        
+
+        paths = {name: [] for name in folder_names}
         for base_folder in input_base_folders:
             data = scene_model_id_pair(os.path.join(base_folder, folder_names[0]), data_portion)
             for d in data:
@@ -95,8 +92,7 @@ class Dataset(torch.utils.data.Dataset):
                 shuffle=self.shuffle,
             )
 
-            for item in sample_loader:
-                yield item
+            yield from sample_loader
     
     
 

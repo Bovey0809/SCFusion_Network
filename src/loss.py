@@ -42,17 +42,15 @@ class AdversarialLoss(nn.Module):
 
     def __call__(self, outputs, is_real, is_disc=None):
         if self.type == 'hinge':
-            if is_disc:
-                if is_real:
-                    outputs = -outputs
-                return self.criterion(1 + outputs).mean()
-            else:
+            if not is_disc:
                 return (-outputs).mean()
 
+            if is_real:
+                outputs = -outputs
+            return self.criterion(1 + outputs).mean()
         else:
             labels = (self.real_label if is_real else self.fake_label).expand_as(outputs)
-            loss = self.criterion(outputs, labels)
-            return loss
+            return self.criterion(outputs, labels)
 
 
 def soft_f1_score(y_pred:torch.Tensor, y_true:torch.Tensor, epsilon = 1e-12) -> torch.Tensor:
@@ -78,19 +76,12 @@ def SoftF1Loss(y_pred:torch.Tensor, y_true:torch.Tensor, weight=None) -> torch.T
     assert y_true.dtype == torch.long
     assert y_pred.ndim == y_true.ndim # assert y_pred.ndim == y_true.ndim+1
     class_num = y_pred.shape[1] if y_pred.shape[0] == y_true.shape[0] else y_pred.shape[0]
-    
+
     if weight is not None:
         assert(weight.nelement() == class_num)
         weight = weight.view(class_num,-1)
     assert y_true.nelement() == y_pred.nelement() # assert y_true.nelement() == y_pred.nelement()/class_num # dimension should match
-        
-    # if y_pred.is_cuda:
-        # score = torch.zeros([class_num]).cuda()
-        # score = torch.zeros(0.).cuda()
-    # else:
-        # score = torch.zeros([class_num])
-        # score = torch.tensor(0.)
-    
+
     score = 0
     if y_pred.ndim == 2:
         assert y_true.ndim == 1
@@ -110,12 +101,6 @@ def SoftF1Loss(y_pred:torch.Tensor, y_true:torch.Tensor, weight=None) -> torch.T
             score = soft_f1_score(y_pred_flat, y_true_flat)
         # for c in range(class_num):
         #     score[c] = soft_f1_score(y_pred[:,c,:], (y_true==c).float())
-            
+
     # return score.sum()
     return score
-
-    if weight is not None:
-        return (-torch.log(score)).mean()
-        return ((1-score)*weight).sum()
-    else:
-        return (1-score).sum()

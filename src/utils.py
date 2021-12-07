@@ -31,10 +31,7 @@ def get_label_name_list(label_num):
 
 def formatString(means:list,name:str):
         def numpy_to_string(x:np):
-            string = ''
-            for n in x:
-                string += '%5.3f\t' % n
-            return string
+            return ''.join('%5.3f\t' % n for n in x)
         return '{}{}'.format(numpy_to_string(means[name].numpy()), '%5.3f' % means[name].mean().item())
 
 def cal_gan_from_op(x:nn.Module):
@@ -89,11 +86,10 @@ def maskImage(image, mask, merge=False, toFloat=False, inverse=True):
             return (image * (1-mask).float()) + mask
         else:
             return (image * (1-mask)) + mask
+    elif toFloat:
+        return (image * (1-mask).float())
     else:
-        if toFloat:
-            return (image * (1-mask).float())
-        else:
-            return (image * (1-mask))
+        return (image * (1-mask))
 
 def stitch_images(inputs, *outputs, img_per_row=2):
     gap = 5
@@ -156,11 +152,7 @@ class Progbar(object):
         self.width = width
         self.verbose = verbose
         self.interval = interval
-        if stateful_metrics:
-            self.stateful_metrics = set(stateful_metrics)
-        else:
-            self.stateful_metrics = set()
-
+        self.stateful_metrics = set(stateful_metrics) if stateful_metrics else set()
         self._dynamic_display = ((hasattr(sys.stdout, 'isatty') and
                                   sys.stdout.isatty()) or
                                  'ipykernel' in sys.modules or
@@ -189,15 +181,14 @@ class Progbar(object):
         for k, v in values:
             if k not in self._values_order:
                 self._values_order.append(k)
-            if k not in self.stateful_metrics:
-                if k not in self._values:
-                    self._values[k] = [v * (current - self._seen_so_far),
-                                       current - self._seen_so_far]
-                else:
-                    self._values[k][0] += v * (current - self._seen_so_far)
-                    self._values[k][1] += (current - self._seen_so_far)
-            else:
+            if k in self.stateful_metrics:
                 self._values[k] = v
+            elif k not in self._values:
+                self._values[k] = [v * (current - self._seen_so_far),
+                                   current - self._seen_so_far]
+            else:
+                self._values[k][0] += v * (current - self._seen_so_far)
+                self._values[k][1] += (current - self._seen_so_far)
         self._seen_so_far = current
 
         now = time.time()
@@ -223,10 +214,7 @@ class Progbar(object):
                 prog_width = int(self.width * prog)
                 if prog_width > 0:
                     bar += ('=' * (prog_width - 1))
-                    if current < self.target:
-                        bar += '>'
-                    else:
-                        bar += '='
+                    bar += '>' if current < self.target else '='
                 bar += ('.' * (self.width - prog_width))
                 bar += ']'
             else:
@@ -236,10 +224,7 @@ class Progbar(object):
             if not silent:
                 sys.stdout.write(bar)
 
-            if current:
-                time_per_unit = (now - self._start) / current
-            else:
-                time_per_unit = 0
+            time_per_unit = (now - self._start) / current if current else 0
             if self.target is not None and current < self.target:
                 eta = time_per_unit * (self.target - current)
                 if eta > 3600:
@@ -252,22 +237,18 @@ class Progbar(object):
                     eta_format = '%ds' % eta
 
                 info = ' - ETA: %s' % eta_format
+            elif time_per_unit >= 1:
+                info += ' %.0fs/step' % time_per_unit
+            elif time_per_unit >= 1e-3:
+                info += ' %.0fms/step' % (time_per_unit * 1e3)
             else:
-                if time_per_unit >= 1:
-                    info += ' %.0fs/step' % time_per_unit
-                elif time_per_unit >= 1e-3:
-                    info += ' %.0fms/step' % (time_per_unit * 1e3)
-                else:
-                    info += ' %.0fus/step' % (time_per_unit * 1e6)
+                info += ' %.0fus/step' % (time_per_unit * 1e6)
 
             for k in self._values_order:
                 info += ' - %s:' % k
                 if isinstance(self._values[k], list):
                     avg = np.mean(self._values[k][0] / max(1, self._values[k][1]))
-                    if abs(avg) > 1e-3:
-                        info += ' %.4f' % avg
-                    else:
-                        info += ' %.4e' % avg
+                    info += ' %.4f' % avg if abs(avg) > 1e-3 else ' %.4e' % avg
                 else:
                     info += ' %s' % self._values[k]
 
@@ -287,10 +268,7 @@ class Progbar(object):
                 for k in self._values_order:
                     info += ' - %s:' % k
                     avg = np.mean(self._values[k][0] / max(1, self._values[k][1]))
-                    if avg > 1e-3:
-                        info += ' %.4f' % avg
-                    else:
-                        info += ' %.4e' % avg
+                    info += ' %.4f' % avg if avg > 1e-3 else ' %.4e' % avg
                 info += '\n'
                 if not silent:
                     sys.stdout.write(info)
@@ -302,31 +280,29 @@ class Progbar(object):
         self.update(self._seen_so_far + n, values,silent=silent)
         
 def volumeToPointCloud(volume:torch.Tensor):
-    if volume.dim() == 4:        
-        batch = volume.size(0)
-        X = volume.size(1)
-        Y = volume.size(2)
-        Z = volume.size(3)
-        output = torch.zeros([batch,  X*Y*Z, 3])
-        counter=0;
-        for b in range(batch):
-            for x in range(X):
-                for y in range(Y):
-                    for z in range(Z):
-                        if volume[b,x,y,z] >= 0:
-                            output[b, counter,:] = torch.FloatTensor([
-                                x*100,y*100,z*100
-                                ])
-                            # print(output[b, counter,:])
-                            counter+=1
-                        else:
-                            output[b, counter,:] = torch.FloatTensor([
-                                0,0,0
-                                ])
-                            counter+=1
-        return output
-    else:
+    if volume.dim() != 4:    
         return None
+    batch = volume.size(0)
+    X = volume.size(1)
+    Y = volume.size(2)
+    Z = volume.size(3)
+    output = torch.zeros([batch,  X*Y*Z, 3])
+    counter=0;
+    for b in range(batch):
+        for x in range(X):
+            for y in range(Y):
+                for z in range(Z):
+                    if volume[b,x,y,z] >= 0:
+                        output[b, counter,:] = torch.FloatTensor([
+                            x*100,y*100,z*100
+                            ])
+                    else:
+                        output[b, counter,:] = torch.FloatTensor([
+                            0,0,0
+                            ])
+                    # print(output[b, counter,:])
+                    counter+=1
+    return output
     
 from torch.utils.tensorboard import SummaryWriter
         

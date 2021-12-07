@@ -29,22 +29,21 @@ class BaseModel(nn.Module):
         }, path)
         
     def loadConfig(self, path):
-        if os.path.exists(path):
-            if torch.cuda.is_available():
-                data = torch.load(path)
-            else:
-                data = torch.load(path, map_location=lambda storage, loc: storage)
-                
-                
-            try:
-                eva_iou = data['eva_iou']
-            except:
-                print('Target saving config file does not contain eva_iou!')
-                eva_iou = 0
-                
-            return data['iteration'], eva_iou
-        else:
+        if not os.path.exists(path):
             return 0, 0
+        if torch.cuda.is_available():
+            data = torch.load(path)
+        else:
+            data = torch.load(path, map_location=lambda storage, loc: storage)
+
+
+        try:
+            eva_iou = data['eva_iou']
+        except:
+            print('Target saving config file does not contain eva_iou!')
+            eva_iou = 0
+
+        return data['iteration'], eva_iou
         
     def save(self):
         print('\nSaving %s...' % self.name)
@@ -61,20 +60,20 @@ class BaseModel(nn.Module):
             else:
                 print('Previous IoU is better, save this one as checkpoint.\n')
                 suffix = self.suffix
-                
+
         self.saveConfig(self.config_path + suffix)
         for name,model in self._modules.items():
             skip = False
             for k in self.skip_names:
                 if name.find(k) != -1:
                     skip = True
-            if skip is False:
+            if not skip:
                 self.saveWeights(model, os.path.join(self.saving_pth,name + suffix))
                 
     def load(self, best=False):
         print('\nLoading %s model...' % self.name)
         loaded=True
-        
+
         if os.path.exists(self.config_path+self.best_suffix) and best:
             print('\tTrying to load the best model')
             suffix = self.best_suffix
@@ -105,9 +104,9 @@ class BaseModel(nn.Module):
             for k in self.skip_names:
                 if name.find(k) != -1:
                     skip = True
-            if skip is False:
+            if not skip:
                 loaded &= self.loadWeights(model, os.path.join(self.saving_pth,name + suffix))
-                
+
         if loaded:
             print('\tmodel loaded!\n')
         else:
@@ -125,26 +124,25 @@ class BaseModel(nn.Module):
             }, path)
     def loadWeights(self, model, path):
         # print('isinstance(model, nn.DataParallel): ',isinstance(model, nn.DataParallel))
-        if os.path.exists(path):
-            if torch.cuda.is_available():
-                data = torch.load(path)
-            else:
-                data = torch.load(path, map_location=lambda storage, loc: storage)
-                
-            
-            new_dict = collections.OrderedDict()
-            if isinstance(model, nn.DataParallel):
-                for k,v in data['model'].items():                    
-                    if k[:6] != 'module':
-                        name = 'module.' + k
-                        new_dict [name] = v
-                model.load_state_dict(new_dict)
-            else:
-                for k,v in data['model'].items():                    
-                    if k[:6] == 'module':
-                        name = k[7:]
-                        new_dict [name] = v
-                model.load_state_dict(data['model'])
-            return True
-        else:
+        if not os.path.exists(path):
             return False
+        if torch.cuda.is_available():
+            data = torch.load(path)
+        else:
+            data = torch.load(path, map_location=lambda storage, loc: storage)
+
+
+        new_dict = collections.OrderedDict()
+        if isinstance(model, nn.DataParallel):
+            for k,v in data['model'].items():                    
+                if k[:6] != 'module':
+                    name = 'module.' + k
+                    new_dict [name] = v
+            model.load_state_dict(new_dict)
+        else:
+            for k,v in data['model'].items():                    
+                if k[:6] == 'module':
+                    name = k[7:]
+                    new_dict [name] = v
+            model.load_state_dict(data['model'])
+        return True

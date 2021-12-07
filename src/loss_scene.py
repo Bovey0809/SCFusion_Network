@@ -20,13 +20,12 @@ class ReconstructionLoss(nn.Module):
     def __call__(self, predict, target, weight):
         minus_lambda = (1-self.lambda_gamma)
         minus_gt = (1-target)
-        loss = torch.sum(
+        return torch.sum(
             -torch.sum(
                 self.lambda_gamma*target*torch.log(1e-6+predict)+
                 minus_lambda*minus_gt*torch.log(1e-6+1-predict), dim=[0,2,3,4]
             ) * weight
         )
-        return loss
     
 class GeometricSemanticSceneCompletionLoss(nn.Module):
     def __init__(self, lambda_gamma=0.97):
@@ -35,21 +34,17 @@ class GeometricSemanticSceneCompletionLoss(nn.Module):
     def __call__(self, predict, full_gt, weight, mask=None):
         minus_lambda = (1-self.lambda_gamma)
         minus_gt = (1-full_gt)
-        if mask is None:
-            loss = torch.sum(
+        return torch.sum(
                 -torch.sum(
                     ((self.lambda_gamma*full_gt*torch.log(1e-6+predict))*2+
                     minus_lambda*minus_gt*torch.log(1e-6+1-predict)),dim=[2,3,4]
                 ) * weight
-            )
-        else:
-            loss = torch.sum(
+            ) if mask is None else torch.sum(
             -torch.sum(
                 ((self.lambda_gamma*full_gt*torch.log(1e-6+predict))*2+
                 minus_lambda*minus_gt*torch.log(1e-6+1-predict))*mask,dim=[2,3,4]
             ) * weight
         )
-        return loss
     
 class StandardGANLoss(nn.Module):
     def __init__(self):

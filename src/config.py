@@ -39,7 +39,7 @@ DEFAULT_CONFIG = {
     'PRED_DF': 0,                   # use predict distance field branch
     'PRED_COM': 0,                  # use predict completion branch
     'PRED_SEM': 0,                  # use predict semantic branch
-    
+
     'TRAIN_BASE_FOLDERS': [],       # base training folder 
     'TEST_BASE_FOLDERS': [],        # base testing folder 
     'VALID_BASE_FOLDERS': [],       # base validation folder 
@@ -48,7 +48,7 @@ DEFAULT_CONFIG = {
 
     'LR_G': 0.0001,                  # learning rate for generator
     'LR_D': 0.0001,                  # learning rate for discriminator
-    
+
     'BETA_G': 0.5,                   # adam optimizer beta1 for generators
     'BETA_D': 0.5,                   # adam optimizer beta1 for discriminators
     'BETA2': 0.9,                   # adam optimizer beta2
@@ -68,6 +68,3 @@ DEFAULT_CONFIG = {
     'EVAL_INTERVAL': 0,             # how many iterations to wait before model evaluation (0: never)
     'LOG_INTERVAL': 10,             # how many iterations to wait before logging training status (0: never)
 }
-
-if __name__ == '__main__':
-    pass
